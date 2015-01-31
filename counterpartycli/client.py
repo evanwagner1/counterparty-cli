@@ -267,7 +267,7 @@ def cli(method, params, unsigned):
         # Ask to sign and broadcast (if not multi‐sig).                             
         if script.is_multisig(params['source']):                                
             logger.info('Multi‐signature transactions are signed and broadcasted manually.')
-                                                                                
+                                                                            
         # Sign                                                                  
         elif not wallet.is_mine(params['source']):                                
             print('Source address not in your wallet.')                         
