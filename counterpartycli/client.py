@@ -264,7 +264,6 @@ def cli(method, params, unsigned):
     sign_tx = input("Sign transaction? (y/N) ")                 
                                                                                 
     if sign_tx == 'y':                                            
-                                                                                
         # Ask to sign and broadcast (if not multi‐sig).                             
         if script.is_multisig(params['source']):                                
             logger.info('Multi‐signature transactions are signed and broadcasted manually.')
