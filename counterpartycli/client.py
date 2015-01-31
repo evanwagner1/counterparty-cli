@@ -211,49 +211,29 @@ def market(give_asset, get_asset):
     print(table)
 
 def get_pubkey_monosig(pubkeyhash):
-    if wallet.is_valid(pubkeyhash):
-
-        # If in wallet, get from wallet.
-        logging.debug('Looking for public key for `{}` in wallet.'.format(pubkeyhash))
-        if wallet.is_mine(pubkeyhash):
-            return wallet.get_pubkey(pubkeyhash)
-        logging.debug('Public key for `{}` not found in wallet.'.format(pubkeyhash))
-
-        # If in blockchain (and not in wallet), get from blockchain.
-        logging.debug('Looking for public key for `{}` in blockchain.'.format(pubkeyhash))
-        try:
+    if wallet.is_valid(pubkeyhash):                                             
+                                                                                
+        # If in wallet, get from wallet.                                        
+        if wallet.is_mine(pubkeyhash):                                          
+            return wallet.get_pubkey(pubkeyhash)                                
+                                                                                
+        man_pubkey = ("Enter public keys manually? (y/N)")                      
+                                                                                
+        if man_pubkey == 'y':                                                   
+            pubkey = input('Public keys (hexadecimal) for `{}` to obtain the raw tx: '.format(pubkeyhash))
+            if script.is_fully_valid(binascii.unhexlify(pubkey)):               
+                return pubkey                                                   
+        else:                                                                   
             return util.api('search_pubkey', {'pubkeyhash':pubkeyhash, 'provided_pubkeys':None})
-        except util.RPCError:
-            pass
-        logging.debug('Public key for `{}` not found in blockchain.'.format(pubkeyhash))
-
-        # If not in wallet and not in blockchain, get from user.
-        answer = input('Public keys (hexadecimal) or Private key (Wallet Import Format) for `{}`: '.format(pubkeyhash))
-        if not answer:
-            return None
-
-        # Public Key or Private Key?
-        is_fully_valid_pubkey = True
-        try:
-            is_fully_valid_pubkey = script.is_fully_valid(binascii.unhexlify(answer))
-        except binascii.Error:
-            is_fully_valid_pubkey = False
-        if is_fully_valid_pubkey:
-            logging.debug('Answer was a fully valid public key.')
-            pubkey = answer
-        else:
-            logging.debug('Answer was not a fully valid public key. Assuming answer was a private key.')
-            private_key = answer
-            try:
-                pubkey = script.private_key_to_public_key(private_key)
-            except script.AltcoinSupportError:
-                raise InputError('invalid private key')
-        if pubkeyhash != script.pubkey_to_pubkeyhash(binascii.unhexlify(bytes(pubkey, 'utf-8'))):
-            raise InputError('provided public or private key does not match the source address')
-
-        return pubkey
-
-    return None
+                                                                                
+    return None                                                                 
+                                                                                
+def get_prikvey_monosig(pubkeyhash):                                            
+    privkey = input('Private keys (Wallet Input Format) for {}: '.format(pubkeyhash))  
+    pubkey = script.private_key_to_public_key(privkey)                          
+    if pubkeyhash != script.pubkey_to_pubkeyhash(binascii.unhexlify(bytes(pubkey, 'utf-8'))):
+        raise InputError('provided private key does not match the source address')
+    return privkey                                                
 
 def get_pubkeys(address):
     pubkeys = []
@@ -269,32 +249,46 @@ def get_pubkeys(address):
             pubkeys.append(pubkey)
     return pubkeys
 
-def cli(method, params, unsigned):
-    # Get provided pubkeys from params.
-    pubkeys = []
-    for address_name in ['source', 'destination']:
-        if address_name in params:
-            address = params[address_name]
-            if script.is_multisig(address) or address_name != 'destination':    # We don’t need the pubkey for a mono‐sig destination.
-                pubkeys += get_pubkeys(address)
-    params['pubkey'] = pubkeys
-
-    unsigned_tx_hex = util.api(method, params)
-    logger.info('Transaction (unsigned): {}'.format(unsigned_tx_hex))
-
-    # Sign and broadcast?
-    if not unsigned:
-        if script.is_multisig(params['source']):
+def cli(method, params, unsigned):                                              
+                                                                                
+    # Get provided pubkeys from params.                                         
+    pubkeys = []                                                                
+    for address_name in ['source', 'destination']:                              
+        if address_name in params:                                              
+            address = params[address_name]                                      
+            if script.is_multisig(address) or address_name != 'destination':    # We don’t need the pubkey for a monosig destination.
+                pubkeys += get_pubkeys(address)                                 
+    params['pubkey'] = pubkeys                                                  
+                                                                                
+    unsigned_tx_hex = util.api(method, params)                                  
+    sign_tx = input("Sign transaction? (y/N) ")                 
+                                                                                
+    if sign_tx == 'y':                                            
+                                                                                
+        # Ask to sign and broadcast (if not multi‐sig).                             
+        if script.is_multisig(params['source']):                                
             logger.info('Multi‐signature transactions are signed and broadcasted manually.')
+                                                                                
+        # Sign                                                                  
+        elif not wallet.is_mine(params['source']):                                
+            print('Source address not in your wallet.')                         
+            privkey = get_prikvey_monosig(address)
+            signed_tx_hex = transaction.sign_tx(unsigned_tx_hex, privkey)      
+            logger.info('Transaction (signed): {}'.format(signed_tx_hex))           
+        
+        elif wallet.is_mine(params['source']):                                    
+            signed_tx_hex = wallet.sign_raw_transaction(unsigned_tx_hex)         
+
+        # and broadcast.                                                        
+        broadcast_tx = ("Broadcast transaction? (y/N) ")
+        if broadcast_tx == 'y':
+            tx_hash = util.api('broadcast_tx', {'signed_tx_hex': signed_tx_hex})    
+            logger.info('Hash of transaction (broadcasted): {}'.format(tx_hash))    
         else:
-            if wallet.is_mine(params['source']):
-                if input('Sign and broadcast? (y/N) ') == 'y':
-                    signed_tx_hex = wallet.sign_raw_transaction(unsigned_tx_hex)
-                    logger.info('Transaction (signed): {}'.format(signed_tx_hex))
-                    tx_hash = util.api('broadcast_tx', {'signed_tx_hex': signed_tx_hex})
-                    logger.info('Hash of transaction (broadcasted): {}'.format(tx_hash))
-            else:
-                logger.info('Source address not in wallet.')
+            return 
+
+    else:
+        return logger.info('Transaction (unsigned): {}'.format(unsigned_tx_hex))
 
 
 def set_options(testnet=False, testcoin=False,
